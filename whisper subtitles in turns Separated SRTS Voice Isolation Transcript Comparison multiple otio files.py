@@ -21,13 +21,11 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 import threading
 import numpy as np
-import librosa
 import re
 import signal
 import platform
 import traceback
 import gc
-import tqdm
 import json
 import torch
 print("PyTorch version:", torch.__version__)
@@ -36,7 +34,6 @@ if torch.cuda.is_available():
     print("CUDA version:", torch.version.cuda)
     print("GPU name:", torch.cuda.get_device_name(0))
     print("GPU count:", torch.cuda.device_count())
-import locale
 import difflib
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -6726,8 +6723,8 @@ class WhisperTranscriber:
                 try:
                     results = model.transcribe_multiple_clips(
                         audio_paths,
-                        max_parallel_clips=getattr(self.settings, 'batch_size', 8),  # Reduced for stability
-                        batch_size=8,
+                       # max_parallel_clips=getattr(self.settings, 'batch_size', 8),  # Reduced for stability
+                        batch_size=1,
                         language=self.settings.language if self.settings.language != "auto" else None,
                         task="transcribe",
                         chunk_size=30,
