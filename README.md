@@ -117,13 +117,27 @@ Let's get you set up and ready to create!
       sudo pacman -S ffmpeg
       ```
 
-### One-Line Installation
+### Installation Instructions
 
-Open your terminal or command prompt and run this single command to install all the necessary Python libraries:
+Choose the appropriate installation method based on your system:
+
+**For systems WITHOUT NVIDIA GPU:**
+
+Open your terminal or command prompt and run this command:
 
 ```bash
-pip install ctranslate2 faster-whisper nltk numpy onnxruntime pandas pyannote-audio torch torchaudio transformers
+set TEMP=C:\tmp && set TMP=C:\tmp && pip install ctranslate2 faster-whisper nltk onnxruntime pandas transformers numpy librosa torch torchvision torchaudio tqdm matplotlib demucs python-vlc PyQt5 huggingface-hub opentimelineio && pip install pyannote-audio --no-deps
 ```
+
+**For systems WITH NVIDIA GPU:**
+
+First, run this command:
+
+```bash
+set TEMP=C:\tmp && set TMP=C:\tmp && pip install ctranslate2 faster-whisper nltk onnxruntime pandas transformers numpy librosa tqdm matplotlib demucs python-vlc PyQt5 huggingface-hub opentimelineio && pip install pyannote-audio --no-deps
+```
+
+Then continue with the GPU acceleration setup below.
 
 ### GPU Acceleration with NVIDIA CUDA (Optional, but Recommended)
 
@@ -133,13 +147,9 @@ For a significant speed boost in transcription and audio processing, you can con
 
 Ensure you have the latest NVIDIA drivers installed for your GPU. You can download them from the [official NVIDIA website](https://www.nvidia.com/Download/index.aspx).
 
-**Step 2: Install the CUDA Toolkit**
+**Step 2: Install PyTorch with CUDA Support**
 
-You will need to install the NVIDIA CUDA Toolkit. We recommend using **CUDA 12.1**. You can find the installer for your operating system in the [NVIDIA CUDA Toolkit Archive](https://developer.nvidia.com/cuda-toolkit-archive).
-
-**Step 3: Install PyTorch with CUDA Support**
-
-After installing the CUDA Toolkit, you need to install a version of PyTorch that is compiled for your specific CUDA version.
+After installing the NVIDIA drivers, you need to install a version of PyTorch that is compiled for your specific CUDA version.
 
 1.  Go to the [PyTorch installation page](https://pytorch.org/get-started/locally/).
 2.  Use the interactive tool to generate the correct installation command for your system. Here is an example of the selections:
@@ -147,7 +157,7 @@ After installing the CUDA Toolkit, you need to install a version of PyTorch that
     *   **Your OS:** Windows/Mac/Linux
     *   **Package:** Pip
     *   **Language:** Python
-    *   **Compute Platform:** Select the CUDA version you installed (e.g., CUDA 12.8).
+    *   **Compute Platform:** Select the CUDA version you want to use (e.g., CUDA 12.8).
 3.  The website will generate a command for you to run. It will look similar to this:
 
 ```bash
