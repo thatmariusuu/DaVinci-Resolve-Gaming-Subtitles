@@ -56,6 +56,22 @@ Let's get you set up and ready to create!
 
 - **DaVinci Resolve**: Download and install from the [Blackmagic Design website](https://www.blackmagicdesign.com/products/davinciresolve/).
 - **Python**: Download and install from the [official Python website](https://www.python.org/downloads/).
+- **Visual Studio Code (Recommended)**: A powerful, free code editor that's perfect for editing Python scripts and managing your projects. Here's how to set it up:
+  
+  1. **Download and Install VS Code**: Go to the [official VS Code website](https://code.visualstudio.com/download) and download the installer for your operating system (Windows, macOS, or Linux). Run the installer and follow the setup wizard.
+  
+  2. **Install the Python Extension**: After launching VS Code for the first time:
+     - Click on the Extensions icon in the left sidebar (or press `Ctrl+Shift+X` on Windows/Linux or `Cmd+Shift+X` on macOS)
+     - Search for "Python" in the extensions marketplace
+     - Install the official **Python extension by Microsoft** (it should be the first result with millions of downloads)
+     - This extension provides syntax highlighting, IntelliSense code completion, debugging, code formatting, and integrated terminal support
+  
+  3. **Configure Python Interpreter**: Once the Python extension is installed:
+     - Open any Python file (`.py`) or create a new one
+     - VS Code will automatically detect your Python installation, or you can manually select it by pressing `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS) and typing "Python: Select Interpreter"
+     - Choose the Python interpreter where you installed the required packages from the one-line installation command below
+  
+  With this setup, you'll have a professional development environment for editing and running the Python scripts in this toolkit!
 - **FFmpeg**: This is a crucial open-source tool for handling video and audio files. The scripts rely on it to process media. It must be installed and accessible from your system's command line.
 
 - **On Windows:**
@@ -157,7 +173,7 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 
 ## Your Workflow: From Timeline to Final Subtitles
 
-Here’s how you’ll use these tools together to create amazing content:
+Here's how you'll use these tools together to create amazing content:
 
 **Step 1: Create Your Automated Edit**
 - In DaVinci Resolve, run the **`Interview Style Speech Timeline Generator.py`** script from the `Workspace -> Scripts -> Utility` menu.
