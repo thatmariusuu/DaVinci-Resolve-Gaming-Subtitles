@@ -28,6 +28,10 @@ import traceback
 import gc
 import json
 import torch
+import threading
+import time
+import wave
+import struct
 print("PyTorch version:", torch.__version__)
 print("CUDA available:", torch.cuda.is_available())
 if torch.cuda.is_available():
@@ -58,19 +62,42 @@ except ImportError:
     import demucs
 
 try:
-    import vlc
-    VLC_AVAILABLE = True
+    import pyaudio
+    PYAUDIO_AVAILABLE = True
 except ImportError:
-    VLC_AVAILABLE = False
-    print("python-vlc not found. Installing...")
+    PYAUDIO_AVAILABLE = False
+    print("PyAudio not found. Installing...")
     import subprocess
+    import sys
     try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "python-vlc"])
-        import vlc
-        VLC_AVAILABLE = True
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyaudio"])
+        import pyaudio
+        PYAUDIO_AVAILABLE = True
     except Exception as e:
-        print(f"Failed to install python-vlc: {e}")
-        VLC_AVAILABLE = False
+        print(f"Failed to install PyAudio: {e}")
+        PYAUDIO_AVAILABLE = False
+
+try:
+    from pydub import AudioSegment
+    PYDUB_AVAILABLE = True
+except ImportError:
+    PYDUB_AVAILABLE = False
+    print("PyDub not found. Installing...")
+    import subprocess
+    import sys
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pydub"])
+        from pydub import AudioSegment
+        PYDUB_AVAILABLE = True
+    except Exception as e:
+        print(f"Failed to install PyDub: {e}")
+        PYDUB_AVAILABLE = False
+
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -78,10 +105,10 @@ from PyQt5.QtWidgets import (
     QProgressBar, QSpinBox, QGroupBox, QListWidget, QListWidgetItem,
     QTreeWidget, QTreeWidgetItem, QSplitter, QAbstractItemView, QCheckBox,
     QTextEdit, QSizePolicy, QDialog, QFrame, QRadioButton, QMenu, QDoubleSpinBox,
-    QButtonGroup, QLineEdit, QSpacerItem, QStyle, QSlider, QTabWidget, QScrollArea
+    QButtonGroup, QLineEdit, QStyle, QSlider, QTabWidget, QScrollArea
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QThread, pyqtSlot
-from PyQt5.QtGui import QFont, QColor, QIcon, QPalette, QKeySequence
+from PyQt5.QtGui import QFont, QColor
 
 def run_ffmpeg_util_with_debug(cmd, operation_name, file_path=None):
     # Format the command for logging
@@ -580,12 +607,8 @@ class ModelComparisonDialog(QDialog):
         
         try:
             # Get current playback position in seconds
-            current_time_ms = self.audio_player.media_player.get_time()
-            if current_time_ms < 0:  # VLC returns -1 if no media
-                return
-                
-            current_time = current_time_ms / 1000.0
-            
+            current_time = self.audio_player.get_position()
+
             # Check if we've passed the segment end
             if current_time >= self.current_segment_end:
                 self.segment_timer.stop()
@@ -786,7 +809,9 @@ class ModelComparisonDialog(QDialog):
     def setup_audio_player(self):
         """Set up the integrated audio player"""
         self.audio_group = QGroupBox("🎵 Audio Verification")
-        self.audio_group.setFixedHeight(200)
+        #self.audio_group.setFixedHeight(200)
+        # Instead, set a minimum height that can expand:
+        self.audio_group.setMinimumHeight(250)  # Increased from 200
         audio_layout = QVBoxLayout(self.audio_group)
 
         self.audio_player = AudioPlayerWidget()
@@ -801,7 +826,7 @@ class ModelComparisonDialog(QDialog):
         self.audio_position_label.setAlignment(Qt.AlignCenter)
         self.audio_position_label.setStyleSheet("font-family: monospace; font-weight: bold;")
         audio_layout.addWidget(self.audio_position_label)
-        
+
     def setup_search_filter(self):
         """Set up search and filter controls"""
         self.search_layout = QHBoxLayout()
@@ -1347,7 +1372,7 @@ class ModelComparisonDialog(QDialog):
                     if segments:
                         start_time = min(seg['start'] for seg in segments)
                         seek_time = start_time
-                        QTimer.singleShot(200, lambda: self.audio_player.media_player.set_time(int(seek_time * 1000)))
+                        QTimer.singleShot(200, lambda: self.audio_player.seek_to_position(seek_time))
 
     def seek_to_time_with_padding(self, seek_time):
         """Helper method to seek to a specific time (already includes padding offset)"""
@@ -2878,11 +2903,7 @@ class SegmentSelectionDialog(QDialog):
         
         try:
             # Get current playback position in seconds
-            current_time_ms = self.audio_player.media_player.get_time()
-            if current_time_ms < 0:  # VLC returns -1 if no media
-                return
-                
-            current_time = current_time_ms / 1000.0
+            current_time = self.audio_player.get_position()
             
             # Check if we've passed the segment end
             if current_time >= self.current_segment_end:
@@ -3235,8 +3256,26 @@ class SegmentSelectionDialog(QDialog):
                     }
                 """)
 
+class MockMediaPlayer:
+    """Mock media player to maintain compatibility with VLC interface"""
+    def __init__(self, audio_widget):
+        self.audio_widget = audio_widget
+        
+    def get_time(self):
+        """Get current time in milliseconds (VLC compatibility)"""
+        return int(self.audio_widget.position * 1000)
+    
+    def set_time(self, time_ms):
+        """Set time in milliseconds (VLC compatibility)"""
+        time_seconds = time_ms / 1000.0
+        self.audio_widget.seek_to_position(time_seconds)
+    
+    def get_length(self):
+        """Get total length in milliseconds (VLC compatibility)"""
+        return int(self.audio_widget.duration * 1000)
+
 class AudioPlayerWidget(QWidget):
-    """Professional audio player widget with VLC-like controls and proper cleanup"""
+    """PyAudio-based audio player widget that maintains VLC interface compatibility"""
     
     # Signals for player events
     position_changed = pyqtSignal(float)  # Position in seconds
@@ -3253,379 +3292,323 @@ class AudioPlayerWidget(QWidget):
         self.is_playing = False
         self.is_seeking = False
         
-        # Initialize VLC components as None first
-        self.vlc_instance = None
-        self.media_player = None
-        self.event_manager = None
-        self.update_timer = None
+        # Create mock media player for VLC compatibility
+        self.media_player = MockMediaPlayer(self)
         
-        # Initialize VLC with proper error handling
-        if VLC_AVAILABLE:
+        # PyAudio setup
+        self.p = None
+        self.stream = None
+        self.audio_thread = None
+        self.stop_event = threading.Event()
+        
+        # Audio data
+        self.audio_data = None
+        self.audio_params = None
+        self.current_frame = 0
+        self.total_frames = 0
+        
+        # Devices
+        self.output_devices = []
+        self.selected_device_index = None
+        
+        # Initialize PyAudio with proper error handling
+        if PYAUDIO_AVAILABLE:
             try:
-                # Create VLC instance with minimal output to avoid GUI conflicts
-                self.vlc_instance = vlc.Instance([
-                    '--intf', 'dummy',          # No interface
-                    '--no-video',               # Audio only
-                    '--no-xlib',                # No X11 (Linux)
-                    '--quiet',                  # Reduce output
-                    '--no-stats',               # No statistics
-                    '--no-media-library',       # No media library
-                ])
-                self.media_player = self.vlc_instance.media_player_new()
-                self.vlc_available = True
-                
-                # Set up event manager for position tracking
-                self.event_manager = self.media_player.event_manager()
-                self.event_manager.event_attach(vlc.EventType.MediaPlayerTimeChanged, self.on_time_changed)
-                self.event_manager.event_attach(vlc.EventType.MediaPlayerEndReached, self.on_end_reached)
-                self.event_manager.event_attach(vlc.EventType.MediaPlayerLengthChanged, self.on_length_changed)
-                
+                self.p = pyaudio.PyAudio()
+                self.pyaudio_available = True
+                self.enumerate_devices()
             except Exception as e:
-                print(f"Failed to initialize VLC: {e}")
-                self.vlc_available = False
-                self.vlc_instance = None
-                self.media_player = None
-                self.event_manager = None
+                print(f"Failed to initialize PyAudio: {e}")
+                self.pyaudio_available = False
+                self.p = None
         else:
-            self.vlc_available = False
+            self.pyaudio_available = False
         
         # Set up UI
         self.setup_ui()
         
-        # Timer for UI updates when VLC events don't fire properly
-        if self.vlc_available:
-            self.update_timer = QTimer()
-            self.update_timer.timeout.connect(self.update_position)
-            self.update_timer.setInterval(100)  # Update every 100ms
-    
+        # Timer for UI updates
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self.update_position)
+        self.update_timer.setInterval(100)  # Update every 100ms
+
     def setup_ui(self):
         """Set up the audio player UI"""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(5)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
         
-        # Audio file info
+        # Audio file info - make it taller to prevent device dropdown overlap
         self.file_label = QLabel("No audio file loaded")
-        self.file_label.setStyleSheet("font-weight: bold; color: #333; padding: 5px;")
+        self.file_label.setStyleSheet("font-weight: bold; color: #333; padding: 8px; min-height: 20px;")
+        self.file_label.setWordWrap(True)
+        self.file_label.setMinimumHeight(30)
         layout.addWidget(self.file_label)
+        
+        # Device selection (if multiple devices available)
+        if len(self.output_devices) > 1:
+            device_widget = QWidget()
+            device_widget.setMinimumHeight(35)
+            device_layout = QHBoxLayout(device_widget)
+            device_layout.setContentsMargins(0, 5, 0, 5)
+            device_layout.setSpacing(8)
+            
+            device_label = QLabel("Device:")
+            device_label.setMinimumWidth(50)
+            device_layout.addWidget(device_label)
+            
+            self.device_combo = QComboBox()
+            self.device_combo.setMinimumWidth(250)
+            self.device_combo.setMinimumHeight(25)
+            for device in self.output_devices:
+                self.device_combo.addItem(f"{device['name']} ({device['channels']}ch)", device['index'])
+            self.device_combo.currentIndexChanged.connect(self.on_device_changed)
+            device_layout.addWidget(self.device_combo)
+            device_layout.addStretch()
+            
+            layout.addWidget(device_widget)
+            
+            # Load previously saved device selection
+            self.load_device_selection()
+        
+        # Add some spacing
+        layout.addSpacing(5)
         
         # Progress bar (time slider)
         self.time_slider = QSlider(Qt.Horizontal)
         self.time_slider.setMinimum(0)
-        self.time_slider.setMaximum(1000)  # We'll use percentage-based positioning
+        self.time_slider.setMaximum(1000)
         self.time_slider.setValue(0)
         self.time_slider.setEnabled(False)
+        self.time_slider.setMinimumHeight(25)
         self.time_slider.sliderPressed.connect(self.on_slider_pressed)
         self.time_slider.sliderReleased.connect(self.on_slider_released)
         self.time_slider.sliderMoved.connect(self.on_slider_moved)
         layout.addWidget(self.time_slider)
         
         # Time labels
-        time_layout = QHBoxLayout()
+        time_widget = QWidget()
+        time_widget.setMinimumHeight(25)
+        time_layout = QHBoxLayout(time_widget)
+        time_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.current_time_label = QLabel("00:00")
-        self.current_time_label.setMinimumWidth(40)
+        self.current_time_label.setMinimumWidth(50)
+        self.current_time_label.setAlignment(Qt.AlignLeft)
         self.total_time_label = QLabel("00:00")
-        self.total_time_label.setMinimumWidth(40)
+        self.total_time_label.setMinimumWidth(50)
+        self.total_time_label.setAlignment(Qt.AlignRight)
         
         time_layout.addWidget(self.current_time_label)
         time_layout.addStretch()
         time_layout.addWidget(self.total_time_label)
-        layout.addLayout(time_layout)
+        layout.addWidget(time_widget)
         
-        # Control buttons
-        controls_layout = QHBoxLayout()
-        controls_layout.setSpacing(10)
+        # Control buttons section - create dedicated space
+        controls_widget = QWidget()
+        controls_widget.setMinimumHeight(70)  # Ensure enough space for buttons
+        controls_layout = QHBoxLayout(controls_widget)
+        controls_layout.setContentsMargins(10, 10, 10, 10)
+        controls_layout.setSpacing(12)
         
         # Play/Pause button
         self.play_pause_button = QPushButton()
-        self.play_pause_button.setFixedSize(40, 40)
+        self.play_pause_button.setFixedSize(45, 45)
         self.play_pause_button.clicked.connect(self.toggle_playback)
         self.play_pause_button.setEnabled(False)
         
         # Stop button
         self.stop_button = QPushButton()
-        self.stop_button.setFixedSize(35, 35)
+        self.stop_button.setFixedSize(40, 40)
         self.stop_button.clicked.connect(self.stop_playback)
         self.stop_button.setEnabled(False)
         
         # Skip backward button (-10s)
         self.skip_back_button = QPushButton()
-        self.skip_back_button.setFixedSize(35, 35)
+        self.skip_back_button.setFixedSize(40, 40)
         self.skip_back_button.clicked.connect(lambda: self.skip_time(-10))
         self.skip_back_button.setEnabled(False)
         self.skip_back_button.setToolTip("Skip back 10 seconds")
         
         # Skip forward button (+10s)
         self.skip_forward_button = QPushButton()
-        self.skip_forward_button.setFixedSize(35, 35)
+        self.skip_forward_button.setFixedSize(40, 40)
         self.skip_forward_button.clicked.connect(lambda: self.skip_time(10))
         self.skip_forward_button.setEnabled(False)
         self.skip_forward_button.setToolTip("Skip forward 10 seconds")
         
-        # Volume slider
-        volume_layout = QVBoxLayout()
+        # Volume control section - contained properly
+        volume_widget = QWidget()
+        volume_widget.setFixedWidth(40)
+        volume_widget.setMinimumHeight(60)
+        volume_layout = QVBoxLayout(volume_widget)
+        volume_layout.setContentsMargins(0, 0, 0, 0)
         volume_layout.setSpacing(2)
+        
         volume_label = QLabel("Vol")
         volume_label.setAlignment(Qt.AlignCenter)
-        volume_label.setStyleSheet("font-size: 10px; color: #666;")
+        volume_label.setStyleSheet("font-size: 9px; color: #666;")
+        volume_label.setMaximumHeight(12)
         
         self.volume_slider = QSlider(Qt.Vertical)
         self.volume_slider.setMinimum(0)
         self.volume_slider.setMaximum(100)
         self.volume_slider.setValue(70)
-        self.volume_slider.setFixedHeight(60)
+        self.volume_slider.setFixedSize(20, 45)
         self.volume_slider.valueChanged.connect(self.set_volume)
         self.volume_slider.setEnabled(False)
         
         volume_layout.addWidget(volume_label)
-        volume_layout.addWidget(self.volume_slider)
+        volume_layout.addWidget(self.volume_slider, 0, Qt.AlignCenter)
         
-        # Add all controls to layout
+        # Arrange controls with proper spacing
         controls_layout.addStretch()
         controls_layout.addWidget(self.skip_back_button)
         controls_layout.addWidget(self.play_pause_button)
         controls_layout.addWidget(self.stop_button)
         controls_layout.addWidget(self.skip_forward_button)
         controls_layout.addStretch()
-        controls_layout.addLayout(volume_layout)
+        controls_layout.addWidget(volume_widget)
         
-        layout.addLayout(controls_layout)
+        layout.addWidget(controls_widget)
         
         # Set button icons/text
         self.update_button_icons()
         
-        # Status label
-        self.status_label = QLabel("Ready" if self.vlc_available else "VLC not available - audio playback disabled")
-        self.status_label.setStyleSheet("color: #666; font-size: 10px; padding: 2px;")
+        # Status label - separate section to prevent overlap
+        status_widget = QWidget()
+        status_widget.setMinimumHeight(30)
+        status_layout = QVBoxLayout(status_widget)
+        status_layout.setContentsMargins(5, 5, 5, 5)
+        
+        self.status_label = QLabel("Ready" if self.pyaudio_available else "PyAudio not available - audio playback disabled")
+        self.status_label.setStyleSheet("color: #666; font-size: 10px; padding: 5px; background-color: #f8f9fa; border-radius: 3px;")
         self.status_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.status_label)
-    
-    def load_audio_file(self, file_path):
-        """Load an audio file for playback"""
-        if not self.vlc_available:
-            self.status_label.setText("VLC not available - cannot load audio")
-            return False
+        self.status_label.setWordWrap(True)
+        self.status_label.setMinimumHeight(20)
         
-        if not os.path.exists(file_path):
-            self.status_label.setText(f"Audio file not found: {os.path.basename(file_path)}")
-            return False
-        
-        try:
-            # Stop any current playback
-            self.stop_playback()
-            
-            # Load new media
-            self.audio_file = file_path
-            media = self.vlc_instance.media_new(file_path)
-            self.media_player.set_media(media)
-            
-            # Update UI
-            self.file_label.setText(f"♪ {os.path.basename(file_path)}")
-            self.status_label.setText("Audio loaded - ready to play")
-            
-            # Enable controls
-            self.play_pause_button.setEnabled(True)
-            self.stop_button.setEnabled(True)
-            self.skip_back_button.setEnabled(True)
-            self.skip_forward_button.setEnabled(True)
-            self.time_slider.setEnabled(True)
-            self.volume_slider.setEnabled(True)
-            
-            # Set initial volume
-            self.set_volume(self.volume_slider.value())
-            
-            return True
-            
-        except Exception as e:
-            self.status_label.setText(f"Error loading audio: {str(e)}")
-            return False
-    
-    def toggle_playback(self):
-        """Toggle between play and pause"""
-        if not self.vlc_available or not self.audio_file:
-            return
-        
-        try:
-            # Check actual VLC state to sync with our internal state
-            vlc_state = self.media_player.get_state()
-            vlc_is_playing = vlc_state in [vlc.State.Playing, vlc.State.Buffering]
-            
-            # Sync our state with VLC's actual state
-            if vlc_is_playing and not self.is_playing:
-                self.is_playing = True
-                self.update_button_icons()
-            elif not vlc_is_playing and self.is_playing:
-                self.is_playing = False
-                self.update_button_icons()
-            
-            # Now toggle based on synchronized state
-            if self.is_playing:
-                self.pause_playback()
-            else:
-                self.start_playback()
-        except Exception as e:
-            self.status_label.setText(f"Playback error: {str(e)}")
+        status_layout.addWidget(self.status_label)
+        layout.addWidget(status_widget)
 
-    def start_playback(self):
-        """Start audio playback"""
-        if not self.vlc_available or not self.audio_file:
+    def enumerate_devices(self):
+        """Get all audio output devices"""
+        if not self.p:
             return
-        
-        try:
-            # Check if we're at or near the end, and reset to beginning if so
-            current_time = self.media_player.get_time()
-            length = self.media_player.get_length()
             
-            if length > 0 and current_time >= (length - 1000):  # Within 1 second of end
-                self.media_player.set_time(0)  # Reset to beginning
-                self.position = 0.0
-                self.time_slider.setValue(0)
-                self.current_time_label.setText("00:00")
+        self.output_devices = []
+        
+        try:
+            for i in range(self.p.get_device_count()):
+                info = self.p.get_device_info_by_index(i)
+                if info['maxOutputChannels'] > 0:
+                    self.output_devices.append({
+                        'index': i,
+                        'name': info['name'],
+                        'channels': info['maxOutputChannels']
+                    })
             
-            self.media_player.play()
-            self.is_playing = True
-            self.update_button_icons()
-            if self.update_timer:
-                self.update_timer.start()
-            self.status_label.setText("Playing...")
-            self.playback_started.emit()
-        except Exception as e:
-            self.status_label.setText(f"Play error: {str(e)}")
-    
-    def pause_playback(self):
-        """Pause audio playback"""
-        if not self.vlc_available:
-            return
-        
-        try:
-            self.media_player.pause()
-            self.is_playing = False
-            self.update_button_icons()
-            if self.update_timer:
-                self.update_timer.stop()
-            self.status_label.setText("Paused")
-            self.playback_paused.emit()
-        except Exception as e:
-            self.status_label.setText(f"Pause error: {str(e)}")
-    
-    def stop_playback(self):
-        """Stop audio playback"""
-        if not self.vlc_available:
-            return
-        
-        try:
-            self.media_player.stop()
-            self.is_playing = False
-            self.position = 0.0
-            self.update_button_icons()
-            if self.update_timer:
-                self.update_timer.stop()
-            self.time_slider.setValue(0)
-            self.current_time_label.setText("00:00")
-            self.status_label.setText("Stopped")
-            self.playback_stopped.emit()
-        except Exception as e:
-            self.status_label.setText(f"Stop error: {str(e)}")
-
-    def skip_time(self, seconds):
-        """Skip forward or backward by specified seconds"""
-        if not self.vlc_available or not self.audio_file:
-            return
-        
-        try:
-            current_time = self.media_player.get_time()  # Time in milliseconds
-            new_time = max(0, current_time + (seconds * 1000))
-            
-            # Don't skip beyond the end
-            if self.duration > 0:
-                max_time = self.duration * 1000
-                new_time = min(new_time, max_time)
-            
-            self.media_player.set_time(int(new_time))
-            self.status_label.setText(f"Skipped {seconds:+d}s")
-        except Exception as e:
-            self.status_label.setText(f"Skip error: {str(e)}")
-    
-    def set_volume(self, volume):
-        """Set playback volume (0-100)"""
-        if not self.vlc_available:
-            return
-        
-        try:
-            self.media_player.audio_set_volume(volume)
-        except Exception as e:
-            self.status_label.setText(f"Volume error: {str(e)}")
-    
-    def on_slider_pressed(self):
-        """Handle slider press (start seeking)"""
-        self.is_seeking = True
-    
-    def on_slider_released(self):
-        """Handle slider release (end seeking and set position)"""
-        if not self.vlc_available or not self.audio_file or self.duration <= 0:
-            self.is_seeking = False
-            return
-        
-        try:
-            # Calculate new position
-            slider_value = self.time_slider.value()
-            new_position = (slider_value / 1000.0) * self.duration
-
-            # Set media player position (with padding offset)
-            self.media_player.set_time(int(new_position * 1000))
-            
-            self.is_seeking = False
-        except Exception as e:
-            self.status_label.setText(f"Seek error: {str(e)}")
-            self.is_seeking = False
-
-    def on_slider_moved(self, value):
-        """Handle slider movement (preview time)"""
-        if self.duration > 0:
-            # FIXED: Calculate preview time based on content duration (without padding)
-            content_duration = max(0, self.duration - 2.0)  # Remove padding from both ends
-            if content_duration > 0:
-                preview_time = (value / 1000.0) * content_duration
-                self.current_time_label.setText(self.format_time(preview_time))
-    
-    def update_position(self):
-        """Update position display (called by timer)"""
-        if not self.vlc_available or not self.audio_file or self.is_seeking:
-            return
-        
-        try:
-            # Get current time and duration
-            current_time = self.media_player.get_time()  # milliseconds
-            length = self.media_player.get_length()      # milliseconds
-            
-            if current_time >= 0 and length > 0:
-                # FIXED: Subtract 1 second padding from display time
-                raw_position = current_time / 1000.0
-                display_position = max(0, raw_position - 1.0)  # Show content time, not file time
-                
-                raw_duration = length / 1000.0
-                display_duration = max(0, raw_duration - 2.0)  # Subtract padding from both ends
-                
-                # Store raw values for calculations
-                self.position = raw_position
-                self.duration = raw_duration
-                
-                # Update slider based on content time
-                if display_duration > 0:
-                    slider_position = int((display_position / display_duration) * 1000)
-                    self.time_slider.setValue(slider_position)
-                
-                # Update time labels to show content time
-                self.current_time_label.setText(self.format_time(display_position))
-                self.total_time_label.setText(self.format_time(display_duration))
-                
-                # Emit signals with display time (content time, not raw file time)
-                self.position_changed.emit(display_position)
-                if abs(display_duration - (length/1000.0 - 2.0)) > 0.1:  # Duration changed significantly
-                    self.duration_changed.emit(display_duration)
+            # Auto-select default device
+            if self.output_devices:
+                try:
+                    default_info = self.p.get_default_output_device_info()
+                    self.selected_device_index = default_info['index']
+                except:
+                    self.selected_device_index = self.output_devices[0]['index']
                     
         except Exception as e:
-            pass  # Ignore errors during position updates
+            print(f"Error enumerating devices: {e}")
+
+    def save_device_selection(self):
+        """Save the selected audio device to settings"""
+        if hasattr(self, 'device_combo') and self.selected_device_index is not None:
+            try:
+                import json
+                import os
+                
+                # Get settings directory
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                settings_file = os.path.join(script_dir, "audio_settings.json")
+                
+                # Load existing settings or create new
+                settings = {}
+                if os.path.exists(settings_file):
+                    try:
+                        with open(settings_file, 'r') as f:
+                            settings = json.load(f)
+                    except:
+                        settings = {}
+                
+                # Save device info
+                if self.selected_device_index is not None:
+                    # Find device info
+                    device_info = None
+                    for device in self.output_devices:
+                        if device['index'] == self.selected_device_index:
+                            device_info = device
+                            break
+                    
+                    if device_info:
+                        settings['selected_device'] = {
+                            'index': self.selected_device_index,
+                            'name': device_info['name'],
+                            'channels': device_info['channels']
+                        }
+                        
+                        # Save to file
+                        with open(settings_file, 'w') as f:
+                            json.dump(settings, f, indent=2)
+                            
+            except Exception as e:
+                print(f"Failed to save audio device settings: {e}")
+
+    def load_device_selection(self):
+        """Load the previously selected audio device"""
+        try:
+            import json
+            import os
+            
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            settings_file = os.path.join(script_dir, "audio_settings.json")
+            
+            if os.path.exists(settings_file):
+                with open(settings_file, 'r') as f:
+                    settings = json.load(f)
+                
+                saved_device = settings.get('selected_device')
+                if saved_device and hasattr(self, 'device_combo'):
+                    saved_name = saved_device.get('name', '')
+                    
+                    # Try to find device by name first
+                    for i, device in enumerate(self.output_devices):
+                        if device['name'] == saved_name:
+                            self.device_combo.setCurrentIndex(i)
+                            self.selected_device_index = device['index']
+                            print(f"Restored audio device: {saved_name}")
+                            return True
+                    
+                    # If not found by name, try by index as fallback
+                    saved_index = saved_device.get('index')
+                    for i, device in enumerate(self.output_devices):
+                        if device['index'] == saved_index:
+                            self.device_combo.setCurrentIndex(i)
+                            self.selected_device_index = device['index']
+                            print(f"Restored audio device by index: {device['name']}")
+                            return True
+                            
+        except Exception as e:
+            print(f"Failed to load audio device settings: {e}")
+        
+        return False
+
+    def on_device_changed(self, index):
+        """Handle device selection change"""
+        if index >= 0 and index < len(self.output_devices):
+            device = self.output_devices[index]
+            self.selected_device_index = device['index']
+            
+            # Save the selection for next time
+            self.save_device_selection()
+            print(f"Audio device changed to: {device['name']}")
 
     def update_button_icons(self):
         """Update button icons and text"""
@@ -3662,32 +3645,255 @@ class AudioPlayerWidget(QWidget):
         # Skip buttons
         self.skip_back_button.setText("⏪")
         self.skip_forward_button.setText("⏩")
+
+    def load_audio_file(self, file_path):
+        """Load an audio file for playback"""
+        if not self.pyaudio_available:
+            self.status_label.setText("PyAudio not available - cannot load audio")
+            return False
+        
+        if not os.path.exists(file_path):
+            self.status_label.setText(f"Audio file not found: {os.path.basename(file_path)}")
+            return False
+        
+        try:
+            # Stop any current playback
+            self.stop_playback()
+            
+            # Load audio file
+            self.audio_file = file_path
+            ext = os.path.splitext(file_path)[1].lower()
+            
+            if ext == '.wav':
+                # Load WAV file directly
+                with wave.open(file_path, 'rb') as wf:
+                    self.audio_params = {
+                        'channels': wf.getnchannels(),
+                        'rate': wf.getframerate(),
+                        'format': self.p.get_format_from_width(wf.getsampwidth()),
+                        'chunk_size': 1024
+                    }
+                    self.audio_data = wf.readframes(wf.getnframes())
+                    self.total_frames = wf.getnframes()
+                    
+            elif PYDUB_AVAILABLE and ext in ['.mp3', '.flac', '.ogg', '.m4a']:
+                # Load with PyDub and convert to WAV format
+                audio = AudioSegment.from_file(file_path)
+                
+                self.audio_params = {
+                    'channels': audio.channels,
+                    'rate': audio.frame_rate,
+                    'format': self.p.get_format_from_width(audio.sample_width),
+                    'chunk_size': 1024
+                }
+                
+                self.audio_data = audio.raw_data
+                self.total_frames = len(audio.get_array_of_samples()) // audio.channels
+                
+            else:
+                self.status_label.setText(f"Unsupported format: {ext}")
+                return False
+            
+            # Calculate duration
+            self.duration = self.total_frames / self.audio_params['rate']
+            
+            # Update UI
+            self.file_label.setText(f"♪ {os.path.basename(file_path)}")
+            self.status_label.setText("Audio loaded - ready to play")
+            self.total_time_label.setText(self.format_time(self.duration))
+            
+            # Enable controls
+            self.play_pause_button.setEnabled(True)
+            self.stop_button.setEnabled(True)
+            self.skip_back_button.setEnabled(True)
+            self.skip_forward_button.setEnabled(True)
+            self.time_slider.setEnabled(True)
+            self.volume_slider.setEnabled(True)
+            
+            # Reset position
+            self.position = 0.0
+            self.current_frame = 0
+            self.current_time_label.setText("00:00")
+            self.time_slider.setValue(0)
+            
+            # Set initial volume
+            self.set_volume(self.volume_slider.value())
+            
+            return True
+            
+        except Exception as e:
+            self.status_label.setText(f"Error loading audio: {str(e)}")
+            return False
     
-    def on_time_changed(self, event):
-        """VLC event: time changed"""
-        # This is called from VLC's thread, so we need to be careful
-        pass  # We'll rely on the timer for updates instead
+    def toggle_playback(self):
+        """Toggle between play and pause"""
+        if not self.pyaudio_available or not self.audio_file:
+            return
+        
+        if self.is_playing:
+            self.pause_playback()
+        else:
+            self.start_playback()
     
-    def on_length_changed(self, event):
-        """VLC event: length/duration changed"""
-        pass  # We'll rely on the timer for updates instead
+    def start_playback(self):
+        """Start audio playback"""
+        if not self.pyaudio_available or not self.audio_data:
+            return
+        
+        try:
+            # Check if we're at or near the end, and reset to beginning if so
+            if self.position >= (self.duration - 0.1):  # Within 0.1 seconds of end
+                self.seek_to_position(0)
+            
+            self.stop_event.clear()
+            self.is_playing = True
+            self.update_button_icons()
+            self.update_timer.start()
+            self.status_label.setText("Playing...")
+            
+            # Start playback thread
+            self.audio_thread = threading.Thread(target=self.playback_thread, daemon=True)
+            self.audio_thread.start()
+            
+            self.playback_started.emit()
+            
+        except Exception as e:
+            self.status_label.setText(f"Play error: {str(e)}")
     
-    def on_end_reached(self, event):
-        """VLC event: playback ended"""
-        # This needs to be called from the main thread
-        QTimer.singleShot(0, self.handle_end_reached)
+    def pause_playback(self):
+        """Pause audio playback"""
+        if not self.pyaudio_available:
+            return
+        
+        try:
+            self.stop_event.set()
+            self.is_playing = False
+            self.update_button_icons()
+            if self.update_timer:
+                self.update_timer.stop()
+            self.status_label.setText("Paused")
+            self.playback_paused.emit()
+        except Exception as e:
+            self.status_label.setText(f"Pause error: {str(e)}")
+    
+    def stop_playback(self):
+        """Stop audio playback"""
+        if not self.pyaudio_available:
+            return
+        
+        try:
+            self.stop_event.set()
+            self.is_playing = False
+            self.position = 0.0
+            self.current_frame = 0
+            self.update_button_icons()
+            if self.update_timer:
+                self.update_timer.stop()
+            self.time_slider.setValue(0)
+            self.current_time_label.setText("00:00")
+            self.status_label.setText("Stopped")
+            self.playback_stopped.emit()
+        except Exception as e:
+            self.status_label.setText(f"Stop error: {str(e)}")
+    
+    def skip_time(self, seconds):
+        """Skip forward or backward by specified seconds"""
+        if not self.pyaudio_available or not self.audio_data:
+            return
+        
+        try:
+            new_position = max(0, min(self.duration, self.position + seconds))
+            self.seek_to_position(new_position)
+            self.status_label.setText(f"Skipped {seconds:+d}s")
+        except Exception as e:
+            self.status_label.setText(f"Skip error: {str(e)}")
+    
+    def set_volume(self, volume):
+        """Set playback volume (0-100)"""
+        # Volume is applied during playback
+        pass
+    
+    def seek_to_position(self, position_seconds):
+        """Seek to a specific position in seconds"""
+        if not self.audio_data or self.duration <= 0:
+            return
+        
+        # Calculate new frame position
+        new_frame = int((position_seconds / self.duration) * self.total_frames)
+        new_frame = max(0, min(self.total_frames - 1, new_frame))
+        
+        self.current_frame = new_frame
+        self.position = (new_frame / self.total_frames) * self.duration
+        
+        # Update UI
+        if self.duration > 0:
+            slider_position = int((self.position / self.duration) * 1000)
+            self.time_slider.setValue(slider_position)
+        
+        self.current_time_label.setText(self.format_time(self.position))
+    
+    def on_slider_pressed(self):
+        """Handle slider press (start seeking)"""
+        self.is_seeking = True
+    
+    def on_slider_released(self):
+        """Handle slider release (end seeking and set position)"""
+        if not self.pyaudio_available or not self.audio_file or self.duration <= 0:
+            self.is_seeking = False
+            return
+        
+        try:
+            # Calculate new position
+            slider_value = self.time_slider.value()
+            new_position = (slider_value / 1000.0) * self.duration
+            
+            self.seek_to_position(new_position)
+            self.is_seeking = False
+        except Exception as e:
+            self.status_label.setText(f"Seek error: {str(e)}")
+            self.is_seeking = False
+    
+    def on_slider_moved(self, value):
+        """Handle slider movement (preview time)"""
+        if self.duration > 0:
+            preview_time = (value / 1000.0) * self.duration
+            self.current_time_label.setText(self.format_time(preview_time))
+    
+    def update_position(self):
+        """Update position display (called by timer)"""
+        if not self.pyaudio_available or not self.audio_file or self.is_seeking:
+            return
+        
+        try:
+            if self.duration > 0:
+                # Update slider position
+                slider_position = int((self.position / self.duration) * 1000)
+                self.time_slider.setValue(slider_position)
+                
+                # Update time label
+                self.current_time_label.setText(self.format_time(self.position))
+                
+                # Emit position signal
+                self.position_changed.emit(self.position)
+                
+                # Check if playback finished
+                if self.position >= self.duration and self.is_playing:
+                    QTimer.singleShot(0, self.handle_end_reached)
+                    
+        except Exception as e:
+            pass  # Ignore errors during position updates
     
     @pyqtSlot()
     def handle_end_reached(self):
         """Handle end of playback (called from main thread)"""
         try:
-            # Actually stop the VLC player to reset its internal state
-            self.media_player.stop()
+            self.stop_event.set()
         except Exception:
             pass
         
         self.is_playing = False
         self.position = 0.0
+        self.current_frame = 0
         
         self.update_button_icons()
         if self.update_timer:
@@ -3696,7 +3902,71 @@ class AudioPlayerWidget(QWidget):
         self.current_time_label.setText("00:00")
         self.status_label.setText("Finished")
         self.playback_stopped.emit()
-
+    
+    def playback_thread(self):
+        """Thread for audio playback"""
+        try:
+            # Open stream
+            self.stream = self.p.open(
+                format=self.audio_params['format'],
+                channels=self.audio_params['channels'],
+                rate=self.audio_params['rate'],
+                output=True,
+                output_device_index=self.selected_device_index,
+                frames_per_buffer=self.audio_params['chunk_size']
+            )
+            
+            # Calculate bytes per frame
+            bytes_per_frame = self.audio_params['channels'] * self.p.get_sample_size(self.audio_params['format'])
+            chunk_size = self.audio_params['chunk_size']
+            
+            # Play audio from current position
+            data_index = self.current_frame * bytes_per_frame
+            
+            while data_index < len(self.audio_data) and not self.stop_event.is_set():
+                # Get chunk
+                chunk_end = min(data_index + chunk_size * bytes_per_frame, len(self.audio_data))
+                chunk = self.audio_data[data_index:chunk_end]
+                
+                # Apply volume
+                volume = self.volume_slider.value() / 100.0
+                if volume < 1.0:
+                    chunk = self.apply_volume(chunk, volume)
+                
+                # Write to stream
+                self.stream.write(chunk)
+                
+                # Update position
+                data_index = chunk_end
+                self.current_frame = data_index // bytes_per_frame
+                self.position = (self.current_frame / self.total_frames) * self.duration
+            
+            # Cleanup
+            if self.stream:
+                self.stream.stop_stream()
+                self.stream.close()
+                self.stream = None
+                
+        except Exception as e:
+            print(f"Playback thread error: {e}")
+    
+    def apply_volume(self, audio_chunk, volume):
+        """Apply volume to audio chunk"""
+        if not NUMPY_AVAILABLE:
+            return audio_chunk
+        
+        try:
+            # Convert to numpy array
+            dtype = np.int16  # Assuming 16-bit audio
+            audio_array = np.frombuffer(audio_chunk, dtype=dtype)
+            
+            # Apply volume
+            audio_array = (audio_array * volume).astype(dtype)
+            
+            return audio_array.tobytes()
+        except:
+            return audio_chunk
+    
     def format_time(self, seconds):
         """Format time as MM:SS"""
         minutes = int(seconds // 60)
@@ -3726,23 +3996,22 @@ class AudioPlayerWidget(QWidget):
                 self.update_timer.stop()
                 self.update_timer = None
             
-            # Clean up VLC components
-            if hasattr(self, 'media_player') and self.media_player:
+            # Clean up PyAudio components
+            if hasattr(self, 'stream') and self.stream:
                 try:
-                    self.media_player.release()
+                    self.stream.stop_stream()
+                    self.stream.close()
                 except:
                     pass
-                self.media_player = None
+                self.stream = None
                 
-            if hasattr(self, 'vlc_instance') and self.vlc_instance:
+            if hasattr(self, 'p') and self.p:
                 try:
-                    self.vlc_instance.release()
+                    self.p.terminate()
                 except:
                     pass
-                self.vlc_instance = None
+                self.p = None
                 
-            self.event_manager = None
-            
         except Exception as e:
             print(f"Error during audio player cleanup: {e}")
 
