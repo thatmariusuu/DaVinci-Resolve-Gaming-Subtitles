@@ -4,7 +4,7 @@
 
 > **Disclaimer:** This is my first tutorial and it's a bit rushed because I was excited to share this milestone with you all!
 
-**[🎬 Watch the Complete Setup & Usage Tutorial](https://youtu.be/lwDoL0rssA0)**  
+**[🎬 Watch the Complete Setup & Usage Tutorial](YOUTUBE_LINK_PLACEHOLDER)**  
 *Learn how to install, configure, and use all the tools in this toolkit with step-by-step video guidance.*
 
 > **Note:** Both this GitHub repository and the video tutorial represent the current state of the toolkit. While the repository will be maintained for major bug fixes, the UI and functionalities shown in the video are locked as they are at this moment.
@@ -33,36 +33,7 @@ This toolkit is designed to feel like a natural extension of DaVinci Resolve, ha
 
 This repository includes three main scripts that work together in a seamless workflow, plus essential DaVinci Resolve files:
 
-### 1. The Automated Interview Editor (`Interview Style Speech Timeline Generator.py`)
-
-This is your starting point. This tool is designed for editors working with interview or dialogue-heavy content across multiple audio tracks.
-
-- **What it does**:
-  - Analyzes multiple audio tracks and automatically creates a multi-camera style edit.
-  - Use **Enhanced Interview Mode** to intelligently fill silent gaps for a seamless conversation.
-  - Exports a new timeline file (`.otio`) that you can use in the next step.
-  - Utilizes the included XML preset files for audio rendering from DaVinci Resolve.
-
-### 2. The Ultimate Transcription Suite (`whisper subtitles in turns...`)
-
-Once you have your `.otio` files, this is your all-in-one command center for transcription.
-
-- **What it does**:
-  - A beautiful GUI to manage your transcription projects.
-  - **Listens to your `.otio` files** and generates highly accurate SRT subtitle files from the speech.
-  - Use the **Professional Transcription Editor** to compare and perfect your transcripts.
-
-### 3. The Subtitle Importer & Styler (`ResolveSubtitlePro.py`)
-
-This is the final step, where you bring your subtitles into Resolve and give them a dynamic, professional look.
-
-- **What it does**:
-  - Imports your SRT files into DaVinci Resolve.
-  - Applies complex logic to create an **entertaining, gaming-video style** presentation for your subtitles.
-  - Uses your favorite **Text+ templates** for maximum customization.
-  - Works seamlessly with the included snap captions templates.
-
-### 4. DaVinci Resolve Files Collection 📁
+### 1. DaVinci Resolve Files Collection 📁
 
 The `Davinci Resolve Files` folder contains everything you need to get started immediately:
 
@@ -73,6 +44,35 @@ The `Davinci Resolve Files` folder contains everything you need to get started i
   - `AudioOnly2.xml`: Exports only Audio Track 2 from your timeline
   - `AudioOnly3.xml`: Exports only Audio Track 3 from your timeline
   - `AudioOnly4.xml`: Exports only Audio Track 4 from your timeline
+
+### 2. The Automated Interview Editor (`Interview Style Speech Timeline Generator.py`)
+
+This is your starting point. This tool is designed for editors working with interview or dialogue-heavy content across multiple audio tracks.
+
+- **What it does**:
+  - Analyzes multiple audio tracks and automatically creates a multi-camera style edit.
+  - Use **Enhanced Interview Mode** to intelligently fill silent gaps for a seamless conversation.
+  - Exports a new timeline file (`.otio`) that you can use in the next step.
+  - Utilizes the included XML preset files for audio rendering from DaVinci Resolve.
+
+### 3. The Ultimate Transcription Suite (`whisper subtitles in turns...`)
+
+Once you have your `.otio` files, this is your all-in-one command center for transcription.
+
+- **What it does**:
+  - A beautiful GUI to manage your transcription projects.
+  - **Listens to your `.otio` files** and generates highly accurate SRT subtitle files from the speech.
+  - Use the **Professional Transcription Editor** to compare and perfect your transcripts.
+
+### 4. The Subtitle Importer & Styler (`ResolveSubtitlePro.py`)
+
+This is the final step, where you bring your subtitles into Resolve and give them a dynamic, professional look.
+
+- **What it does**:
+  - Imports your SRT files into DaVinci Resolve.
+  - Applies complex logic to create an **entertaining, gaming-video style** presentation for your subtitles.
+  - Uses your favorite **Text+ templates** for maximum customization.
+  - Works seamlessly with the included snap captions templates.
 
 ## Getting Started 🛠️
 
