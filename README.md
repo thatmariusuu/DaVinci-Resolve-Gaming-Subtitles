@@ -1,8 +1,13 @@
 # Welcome to Your DaVinci Resolve Automation Toolkit! ✨
 
 ## 📺 Video Tutorial
-**[🎬 Watch the Complete Setup & Usage Tutorial](YOUTUBE_LINK_PLACEHOLDER)**  
+
+> **Disclaimer:** This is my first tutorial and it's a bit rushed because I was excited to share this milestone with you all!
+
+**[🎬 Watch the Complete Setup & Usage Tutorial](https://youtu.be/lwDoL0rssA0)**  
 *Learn how to install, configure, and use all the tools in this toolkit with step-by-step video guidance.*
+
+> **Note:** Both this GitHub repository and the video tutorial represent the current state of the toolkit. While the repository will be maintained for major bug fixes, the UI and functionalities shown in the video are locked as they are at this moment.
 
 ---
 
@@ -18,7 +23,7 @@ This toolkit is designed to feel like a natural extension of DaVinci Resolve, ha
 - **🎤 Crystal-Clear Vocals**: With **Demucs** integration, you can isolate dialogue from background noise, ensuring your transcripts are clean and precise, even with challenging audio.
 - **🎬 Automated Interview Editor**: Magically create dynamic "interview-style" edits! The script intelligently cuts between speakers based on who is talking, saving you hours of manual cutting.
 - **✨ Smart Gap-Filling**: Go beyond simple cuts! This feature fills silent moments in one speaker's track with relevant reactions or dialogue from another, creating a natural and engaging conversational flow.
-- **✍️ Pro-Level Subtitles**: Generate subtitles that are not only accurate but also beautifully formatted. Using **spaCy** for linguistic analysis, subtitles are split at natural breaking points for perfect readability.
+- **✏️ Pro-Level Subtitles**: Generate subtitles that are not only accurate but also beautifully formatted. Using **spaCy** for linguistic analysis, subtitles are split at natural breaking points for perfect readability.
 - **🎮 Dynamic Gaming-Style Subtitles**: Import your subtitles into Resolve with advanced logic that creates an entertaining, dynamic, and engaging visual style, perfect for YouTube and other online content.
 - **🖥️ User-Friendly Interfaces**: All tools feature intuitive graphical interfaces (GUIs) built with PyQt5 and Tkinter, making them easy and enjoyable to use directly within DaVinci Resolve.
 - **📁 Flexible Timeline Control**: By using the **OpenTimelineIO** format, the scripts allow for powerful, non-destructive timeline editing.
@@ -75,7 +80,7 @@ Let's get you set up and ready to create!
 
 ### Prerequisites
 
-- **DaVinci Resolve**: Download and install from the [Blackmagic Design website](https://www.blackmagicdesign.com/products/davinciresolve/).
+- **DaVinci Resolve**: Download and install from the [Blackmagic Design website](https://www.blackmagicdesign.com/support/family/davinci-resolve-and-fusion). Look for the **"Latest Downloads"** section and download **DaVinci Resolve version 20.1.1 or any version 20.x**. This toolkit was developed and tested with DaVinci Resolve 20.1.1, but should work with any DaVinci Resolve 20.x version as demonstrated in the video tutorial.
 - **Python 3.12**: This toolkit requires Python 3.12. Download and install from the [official Python website](https://www.python.org/downloads/) or use this direct link for Windows 64-bit: [Python 3.12.10](https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe).
 - **Visual Studio Code (Recommended)**: A powerful, free code editor that's perfect for editing Python scripts and managing your projects. Here's how to set it up:
   
