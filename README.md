@@ -4,7 +4,7 @@
 
 > **Disclaimer:** This is my first tutorial and it's a bit rushed because I was excited to share this milestone with you all!
 
-**[🎬 Watch the Complete Setup & Usage Tutorial](YOUTUBE_LINK_PLACEHOLDER)**  
+**[🎬 Watch the Complete Setup & Usage Tutorial](https://youtu.be/lwDoL0rssA0)**  
 *Learn how to install, configure, and use all the tools in this toolkit with step-by-step video guidance.*
 
 > **Note:** Both this GitHub repository and the video tutorial represent the current state of the toolkit. While the repository will be maintained for major bug fixes, the UI and functionalities shown in the video are locked as they are at this moment.
